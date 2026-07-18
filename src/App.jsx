@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, ArrowRight, BarChart3, CalendarDays, Check, ChevronLeft,
   Clock3, Copy, Download, Flag, History, Info, LayoutDashboard, Menu, Plus,
-  Moon, Pencil, RotateCcw, Settings2, Sparkles, Sun, Target, Trash2, TrendingUp, Upload, X,
+  Moon, Pencil, RotateCcw, Settings2, Sparkles, Sun, Target, Trash2, TrendingUp, Trophy, Upload, X,
 } from 'lucide-react'
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -86,6 +86,7 @@ function normalizeData(data) {
 }
 
 function getStatus(goal) {
+  if (goal.reachedAt) return 'Reached'
   if (progressPercent(goal) >= 100) return 'Completed'
   const elapsedWeeks = Math.max(0, daysBetween(goal.startDate, today()) / 7)
   const expected = Math.min(totalNeeded(goal), elapsedWeeks * Number(goal.weeklyTarget || goal.suggestedWeeklyTarget))
@@ -97,6 +98,7 @@ function getStatus(goal) {
 }
 
 const statusStyle = {
+  Reached: 'bg-violet-50 text-violet-700 ring-violet-600/20',
   Completed: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   Ahead: 'bg-blue-50 text-blue-700 ring-blue-600/20',
   'On track': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
@@ -212,7 +214,7 @@ function SetupWizard({ onFinish, onCancel, allowCancel = false }) {
   )
 }
 
-function GoalCard({ goal, activities, onLog, onEdit, onStartWeek, onDelete }) {
+function GoalCard({ goal, activities, onLog, onEdit, onStartWeek, onDelete, onReach }) {
   const percent = progressPercent(goal)
   const weekly = weeklyProgress(goal, activities)
   const weeklyPercent = Math.min(100, (weekly / goal.weeklyTarget) * 100)
@@ -233,9 +235,45 @@ function GoalCard({ goal, activities, onLog, onEdit, onStartWeek, onDelete }) {
         <div className="mt-3"><ProgressBar value={weeklyPercent} color={weeklyPercent >= 100 ? 'bg-emerald-500' : 'bg-slate-700'} testId="weekly-progress-bar" /></div>
       </div>
       <div className="mt-4 flex items-center justify-between text-xs text-slate-500"><span className="flex items-center gap-1.5"><Clock3 size={14} />{daysBetween(today(), goal.endDate)} days left</span><span>Due {formatDate(goal.endDate)}</span></div>
-      <button className="btn-primary mt-5 w-full" onClick={() => onLog(goal)}><Plus size={17} />Log activity</button>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <button className="btn-primary w-full" onClick={() => onLog(goal)}><Plus size={17} />Log activity</button>
+        <button data-testid="mark-goal-reached-button" className="btn-secondary w-full" onClick={() => onReach(goal)}><Trophy size={17} />Mark achieved</button>
+      </div>
     </article>
   )
+}
+
+function ReachedGoalCard({ goal, onEditNote, onDelete }) {
+  return (
+    <article data-testid="reached-goal-card" className="card p-5 sm:p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{goal.measurement}</p>
+          <h3 className="mt-1 truncate text-lg font-bold">{goal.name}</h3>
+        </div>
+        <div className="flex items-center gap-1"><Badge>Reached</Badge><button aria-label={`Delete ${goal.name}`} onClick={() => onDelete(goal.id)} className="rounded-lg p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"><Trash2 size={15} /></button></div>
+      </div>
+      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-400">Final value</p><p className="mt-1 text-lg font-bold">{formatNum(goal.currentValue)} <span className="text-sm font-medium text-slate-400">{goal.unit}</span></p></div>
+        <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-400">Target</p><p className="mt-1 text-lg font-bold">{formatNum(goal.targetValue)} <span className="text-sm font-medium text-slate-400">{goal.unit}</span></p></div>
+        <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-400">Achieved</p><p className="mt-1 text-lg font-bold">{formatDate(goal.reachedAt.slice(0, 10))}</p></div>
+      </div>
+      {goal.reachedNote && <p className="mt-5 rounded-xl border bg-white p-4 text-sm leading-6 text-slate-600">{goal.reachedNote}</p>}
+      <button className="btn-secondary mt-5 w-full sm:w-auto" onClick={() => onEditNote(goal)}><Pencil size={17} />{goal.reachedNote ? 'Edit note' : 'Add note'}</button>
+    </article>
+  )
+}
+
+function ReachGoal({ goal, onSave, onClose }) {
+  const [note, setNote] = useState(goal.reachedNote || '')
+  return <Modal onClose={onClose}>
+    <div className="flex items-start justify-between"><div><p className="text-sm font-semibold text-brand-600">Mark achieved</p><h2 className="mt-1 text-2xl font-bold">{goal.name}</h2></div><button className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={onClose}><X size={20} /></button></div>
+    <div className="mt-7 space-y-5">
+      <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">This moves the goal out of your active list and into Achieved goals.</div>
+      <div><label className="label">Achievement note <span className="normal-case tracking-normal text-slate-400">(optional)</span></label><textarea data-testid="reached-note-input" autoFocus className="field min-h-28 resize-none" placeholder="What changed, what worked, or what do you want to remember?" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+      <div className="flex justify-end gap-3 border-t pt-5"><button className="btn-secondary" onClick={onClose}>Cancel</button><button data-testid="save-reached-goal" className="btn-primary" onClick={() => onSave(goal.id, note)}><Trophy size={17} />Save achieved goal</button></div>
+    </div>
+  </Modal>
 }
 
 function EditGoal({ goal, onSave, onClose }) {
@@ -275,12 +313,23 @@ function LogActivity({ goal, onSave, onClose }) {
   </Modal>
 }
 
-function Dashboard({ goals, activities, onLog, onEdit, onStartWeek, onStartAllWeeks, onDelete }) {
-  const completed = goals.filter((g) => getStatus(g) === 'Completed').length
-  const onTrack = goals.filter((g) => ['On track', 'Ahead'].includes(getStatus(g))).length
+function Dashboard({ goals, activities, onLog, onEdit, onStartWeek, onStartAllWeeks, onDelete, onReach }) {
+  const activeGoals = goals.filter((goal) => !goal.reachedAt)
+  const reachedGoals = goals.filter((goal) => goal.reachedAt)
+  const completed = activeGoals.filter((g) => getStatus(g) === 'Completed').length + reachedGoals.length
+  const onTrack = activeGoals.filter((g) => ['On track', 'Ahead'].includes(getStatus(g))).length
   return <div>
-    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-sm font-semibold text-brand-600">{formatDate(today(), { weekday: 'long', month: 'long', day: 'numeric' })}</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Your goals</h1><p className="mt-2 text-sm text-slate-500">Small steps, clearly measured.</p></div><div className="flex flex-wrap gap-3"><button className="btn-secondary" disabled={!goals.length} onClick={onStartAllWeeks}><RotateCcw size={16} />Start new week</button><div className="card px-4 py-3"><p className="text-xs text-slate-400">On track</p><p className="mt-1 text-xl font-bold">{onTrack}<span className="text-sm font-normal text-slate-400"> / {goals.length}</span></p></div><div className="card px-4 py-3"><p className="text-xs text-slate-400">Completed</p><p className="mt-1 text-xl font-bold">{completed}</p></div></div></div>
-    {goals.length ? <div className="mt-7 grid gap-5">{goals.map((goal) => <GoalCard key={goal.id} goal={goal} activities={activities} onLog={onLog} onEdit={onEdit} onStartWeek={onStartWeek} onDelete={onDelete} />)}</div> : <div className="card mt-8 py-16 text-center"><Target className="mx-auto text-slate-300" size={40} /><h2 className="mt-4 text-lg font-bold">No goals yet</h2><p className="mt-1 text-sm text-slate-500">Create a goal to start tracking progress.</p></div>}
+    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-sm font-semibold text-brand-600">{formatDate(today(), { weekday: 'long', month: 'long', day: 'numeric' })}</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Your goals</h1><p className="mt-2 text-sm text-slate-500">Small steps, clearly measured.</p></div><div className="flex flex-wrap gap-3"><button className="btn-secondary" disabled={!activeGoals.length} onClick={onStartAllWeeks}><RotateCcw size={16} />Start new week</button><div className="card px-4 py-3"><p className="text-xs text-slate-400">On track</p><p className="mt-1 text-xl font-bold">{onTrack}<span className="text-sm font-normal text-slate-400"> / {activeGoals.length}</span></p></div><div className="card px-4 py-3"><p className="text-xs text-slate-400">Achieved</p><p className="mt-1 text-xl font-bold">{completed}</p></div></div></div>
+    {goals.length ? <>
+      <section className="mt-7">
+        <h2 className="text-lg font-bold">Active goals</h2>
+        {activeGoals.length ? <div className="mt-4 grid gap-5">{activeGoals.map((goal) => <GoalCard key={goal.id} goal={goal} activities={activities} onLog={onLog} onEdit={onEdit} onStartWeek={onStartWeek} onDelete={onDelete} onReach={onReach} />)}</div> : <div className="card mt-4 py-10 text-center text-sm text-slate-500">No active goals right now.</div>}
+      </section>
+      {reachedGoals.length > 0 && <section className="mt-10">
+        <div className="flex items-center gap-2"><Trophy className="text-violet-500" size={20} /><h2 className="text-lg font-bold">Achieved goals</h2></div>
+        <div className="mt-4 grid gap-5">{reachedGoals.map((goal) => <ReachedGoalCard key={goal.id} goal={goal} onEditNote={onReach} onDelete={onDelete} />)}</div>
+      </section>}
+    </> : <div className="card mt-8 py-16 text-center"><Target className="mx-auto text-slate-300" size={40} /><h2 className="mt-4 text-lg font-bold">No goals yet</h2><p className="mt-1 text-sm text-slate-500">Create a goal to start tracking progress.</p></div>}
   </div>
 }
 
@@ -351,6 +400,7 @@ function App() {
   const [setup, setSetup] = useState(data.goals.length === 0)
   const [logging, setLogging] = useState(null)
   const [editing, setEditing] = useState(null)
+  const [reaching, setReaching] = useState(null)
   const [mobileNav, setMobileNav] = useState(false)
   useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(data)), [data])
   useEffect(() => {
@@ -374,6 +424,17 @@ function App() {
     })
     setEditing(null)
   }
+  const saveReachedGoal = (id, note) => {
+    setData((d) => ({
+      ...d,
+      goals: d.goals.map((goal) => goal.id === id ? {
+        ...goal,
+        reachedAt: goal.reachedAt || new Date().toISOString(),
+        reachedNote: note.trim(),
+      } : goal),
+    }))
+    setReaching(null)
+  }
   const startNewWeek = (goal) => {
     if (!confirm(`Start a new week for "${goal.name}"? This clears the weekly progress bar but keeps total progress and activity history.`)) return
     setData((d) => ({
@@ -391,7 +452,7 @@ function App() {
     const weekStartedAt = new Date().toISOString()
     setData((d) => ({
       ...d,
-      goals: d.goals.map((goal) => ({
+      goals: d.goals.map((goal) => goal.reachedAt ? goal : ({
         ...goal,
         weekStartedAt,
         weekStartValue: goal.currentValue,
@@ -405,9 +466,10 @@ function App() {
   return <div className="min-h-screen">
     <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6"><button className="flex items-center gap-2.5" onClick={() => setPage('dashboard')}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white"><Target size={19} /></span><span className="font-bold tracking-tight">Goal Tracker</span></button><nav className="hidden items-center gap-1 md:flex">{nav.map(([id, Icon, label]) => <button data-testid={`nav-${id}`} key={id} onClick={() => setPage(id)} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${page === id ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900'}`}><Icon size={16}/>{label}</button>)}<button aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'} className="ml-2 rounded-xl p-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900" onClick={() => setDarkMode((value) => !value)}>{darkMode ? <Sun size={18}/> : <Moon size={18}/>}</button><button data-testid="new-goal-button" className="btn-primary ml-1" onClick={() => setSetup(true)}><Plus size={16}/>New goal</button></nav><div className="flex items-center gap-1 md:hidden"><button aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} className="rounded-xl p-2 text-slate-500" onClick={() => setDarkMode((value) => !value)}>{darkMode ? <Sun size={20}/> : <Moon size={20}/>}</button><button className="rounded-xl p-2" onClick={() => setMobileNav(!mobileNav)}>{mobileNav ? <X size={21}/> : <Menu size={21}/>}</button></div></div>
     {mobileNav && <div className="border-t bg-white p-3 md:hidden">{nav.map(([id, Icon, label]) => <button key={id} onClick={() => { setPage(id); setMobileNav(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-600"><Icon size={17}/>{label}</button>)}<button className="btn-primary mt-2 w-full" onClick={() => { setSetup(true); setMobileNav(false) }}><Plus size={16}/>New goal</button></div>}</header>
-    <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-10">{page === 'dashboard' && <Dashboard goals={data.goals} activities={data.activities} onLog={setLogging} onEdit={setEditing} onStartWeek={startNewWeek} onStartAllWeeks={startAllWeeks} onDelete={deleteGoal} />}{page === 'history' && <HistoryPage goals={data.goals} activities={data.activities} />}{page === 'export' && <ExportPage goals={data.goals} activities={data.activities} onImport={(backup) => { setData(normalizeData(backup)); setPage('dashboard') }} />}</main>
+    <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-10">{page === 'dashboard' && <Dashboard goals={data.goals} activities={data.activities} onLog={setLogging} onEdit={setEditing} onStartWeek={startNewWeek} onStartAllWeeks={startAllWeeks} onDelete={deleteGoal} onReach={setReaching} />}{page === 'history' && <HistoryPage goals={data.goals} activities={data.activities} />}{page === 'export' && <ExportPage goals={data.goals} activities={data.activities} onImport={(backup) => { setData(normalizeData(backup)); setPage('dashboard') }} />}</main>
     {logging && <LogActivity goal={logging} onSave={saveActivity} onClose={() => setLogging(null)} />}
     {editing && <EditGoal goal={editing} onSave={saveGoal} onClose={() => setEditing(null)} />}
+    {reaching && <ReachGoal goal={reaching} onSave={saveReachedGoal} onClose={() => setReaching(null)} />}
   </div>
 }
 

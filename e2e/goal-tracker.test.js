@@ -145,6 +145,22 @@ test('clicking History displays the history screen', async () => {
   assert.match(await history.getText(), /History/)
 })
 
+test('marking a goal achieved moves it to achieved goals with a note', async () => {
+  await driver.findElement(By.css('[data-testid="mark-goal-reached-button"]')).click()
+  const note = await driver.wait(until.elementLocated(By.css('[data-testid="reached-note-input"]')), 5000)
+  await note.sendKeys('Finished with a new reading habit.')
+  await driver.findElement(By.css('[data-testid="save-reached-goal"]')).click()
+
+  const achieved = await driver.wait(until.elementLocated(By.xpath("//h2[normalize-space()='Achieved goals']")), 5000)
+  assert.equal(await achieved.isDisplayed(), true)
+
+  const card = await driver.wait(until.elementLocated(By.css('[data-testid="reached-goal-card"]')), 5000)
+  const text = await card.getText()
+  assert.match(text, /Read more books/)
+  assert.match(text, /Finished with a new reading habit/)
+  assert.match(text, /Reached/)
+})
+
 test('clicking Export displays backup tools', async () => {
   await driver.findElement(By.css('[data-testid="nav-export"]')).click()
   const exportPage = await driver.wait(until.elementLocated(By.css('[data-testid="export-page"]')), 5000)
