@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { createServer } from 'vite'
 import { Builder, By, until } from 'selenium-webdriver'
 import chrome from 'selenium-webdriver/chrome.js'
@@ -36,8 +39,10 @@ const fixture = {
 
 let server
 let driver
+let tempDir
 
 before(async () => {
+  tempDir = mkdtempSync(path.join(tmpdir(), 'goal-tracker-e2e-'))
   server = await createServer({ server: { host: '127.0.0.1', port: 4173 } })
   await server.listen()
 })
@@ -61,6 +66,7 @@ beforeEach(async () => {
 after(async () => {
   await driver?.quit()
   await server?.close()
+  if (tempDir) rmSync(tempDir, { recursive: true, force: true })
 })
 
 test.afterEach(async () => {
@@ -71,6 +77,35 @@ test.afterEach(async () => {
 test('homepage loads the dashboard and saved goal', async () => {
   assert.equal(await driver.getTitle(), 'Goal Tracker')
   const goal = await driver.wait(until.elementLocated(By.xpath("//*[normalize-space()='Read more books']")), 5000)
+  assert.equal(await goal.isDisplayed(), true)
+})
+
+test('empty saved data shows the start screen and can begin goal setup', async () => {
+  await driver.executeScript('localStorage.removeItem(arguments[0]);', 'goal-tracker-data-v1')
+  await driver.navigate().refresh()
+
+  const startScreen = await driver.wait(until.elementLocated(By.css('[data-testid="start-screen"]')), 5000)
+  assert.match(await startScreen.getText(), /How do you want to begin/)
+
+  await driver.findElement(By.css('[data-testid="start-new-goal-button"]')).click()
+  const input = await driver.wait(until.elementLocated(By.css('[data-testid="goal-name-input"]')), 5000)
+  assert.equal(await input.isDisplayed(), true)
+})
+
+test('empty saved data can load a goals-only JSON template', async () => {
+  const templatePath = path.join(tempDir, 'goals-only-template.json')
+  writeFileSync(templatePath, JSON.stringify({ goals: [{ ...fixture.goals[0], id: 'template-goal', name: 'Template goal' }] }))
+
+  await driver.executeScript('localStorage.removeItem(arguments[0]);', 'goal-tracker-data-v1')
+  await driver.navigate().refresh()
+  await driver.wait(until.elementLocated(By.css('[data-testid="start-screen"]')), 5000)
+
+  const input = await driver.findElement(By.css('[data-testid="load-template-input"]'))
+  await driver.executeScript('arguments[0].classList.remove("hidden");', input)
+  await input.sendKeys(templatePath)
+
+  await driver.wait(until.elementLocated(By.xpath("//h1[normalize-space()='Your goals']")), 5000)
+  const goal = await driver.wait(until.elementLocated(By.xpath("//*[normalize-space()='Template goal']")), 5000)
   assert.equal(await goal.isDisplayed(), true)
 })
 

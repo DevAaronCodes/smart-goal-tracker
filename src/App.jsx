@@ -85,6 +85,16 @@ function normalizeData(data) {
   }
 }
 
+async function readGoalJson(file) {
+  const parsed = JSON.parse(await file.text())
+  const backup = Array.isArray(parsed) ? { goals: parsed, activities: [] } : { ...parsed, activities: parsed?.activities || [] }
+  if (!backup || !Array.isArray(backup.goals)) throw new Error('JSON must contain a goals array.')
+  if (!Array.isArray(backup.activities)) throw new Error('Activities must be an array when provided.')
+  if (!backup.goals.every((goal) => goal && typeof goal.id === 'string' && typeof goal.name === 'string')) throw new Error('One or more goals are missing required fields.')
+  if (!backup.activities.every((activity) => activity && typeof activity.id === 'string' && typeof activity.goalId === 'string')) throw new Error('One or more activities are missing required fields.')
+  return normalizeData({ goals: backup.goals, activities: backup.activities })
+}
+
 function getStatus(goal) {
   if (goal.reachedAt) return 'Reached'
   if (progressPercent(goal) >= 100) return 'Completed'
@@ -313,6 +323,64 @@ function LogActivity({ goal, onSave, onClose }) {
   </Modal>
 }
 
+function StartScreen({ onStartNew, onLoadTemplate }) {
+  const [importError, setImportError] = useState('')
+  const loadTemplate = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const backup = await readGoalJson(file)
+      setImportError('')
+      onLoadTemplate(backup)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'This file is not a valid Goal Tracker JSON file.')
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center px-4 py-8 sm:py-14">
+      <section data-testid="start-screen" className="mx-auto w-full max-w-5xl">
+        <div className="text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-card">
+            <Target size={28} />
+          </div>
+          <p className="mt-6 text-sm font-semibold text-brand-600">Goal Tracker</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-5xl">How do you want to begin?</h1>
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">Create your first goal from scratch, or bring in a local JSON template you already use.</p>
+        </div>
+
+        <div className="mt-9 grid gap-4 md:grid-cols-2">
+          <button
+            data-testid="start-new-goal-button"
+            className="group card min-h-56 p-6 text-left transition duration-200 hover:-translate-y-1 hover:border-brand-300 hover:shadow-xl active:translate-y-0 active:scale-[0.99] sm:p-8"
+            onClick={onStartNew}
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-600 transition duration-200 group-hover:scale-110 group-hover:bg-brand-600 group-hover:text-white">
+              <Plus size={23} />
+            </span>
+            <span className="mt-7 block text-2xl font-bold text-slate-950 dark:text-white">Set up my first goal</span>
+            <span className="mt-3 block text-sm leading-6 text-slate-500">Walk through the guided setup and define the goal, timeline, measurements, and weekly target.</span>
+            <span className="mt-7 inline-flex items-center gap-2 text-sm font-semibold text-brand-600 transition group-hover:gap-3">Start from scratch <ArrowRight size={17} /></span>
+          </button>
+
+          <label className="group card min-h-56 cursor-pointer p-6 text-left transition duration-200 hover:-translate-y-1 hover:border-emerald-300 hover:shadow-xl active:translate-y-0 active:scale-[0.99] sm:p-8">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 transition duration-200 group-hover:scale-110 group-hover:bg-emerald-600 group-hover:text-white">
+              <Upload size={23} />
+            </span>
+            <span className="mt-7 block text-2xl font-bold text-slate-950 dark:text-white">Load a goal template</span>
+            <span className="mt-3 block text-sm leading-6 text-slate-500">Select a local `.json` file with saved goals and resume with that dashboard loaded.</span>
+            <span className="mt-7 inline-flex items-center gap-2 text-sm font-semibold text-emerald-600 transition group-hover:gap-3">Choose JSON file <Upload size={17} /></span>
+            <input data-testid="load-template-input" className="hidden" type="file" accept="application/json,.json" onChange={loadTemplate} />
+          </label>
+        </div>
+
+        {importError && <p className="mx-auto mt-5 max-w-2xl rounded-xl bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">{importError}</p>}
+      </section>
+    </main>
+  )
+}
+
 function Dashboard({ goals, activities, onLog, onEdit, onStartWeek, onStartAllWeeks, onDelete, onReach }) {
   const activeGoals = goals.filter((goal) => !goal.reachedAt)
   const reachedGoals = goals.filter((goal) => goal.reachedAt)
@@ -373,13 +441,10 @@ function ExportPage({ goals, activities, onImport }) {
     event.target.value = ''
     if (!file) return
     try {
-      const backup = JSON.parse(await file.text())
-      if (!backup || !Array.isArray(backup.goals) || !Array.isArray(backup.activities)) throw new Error('Backup must contain goals and activities arrays.')
-      if (!backup.goals.every((goal) => goal && typeof goal.id === 'string' && typeof goal.name === 'string')) throw new Error('One or more goals are missing required fields.')
-      if (!backup.activities.every((activity) => activity && typeof activity.id === 'string' && typeof activity.goalId === 'string')) throw new Error('One or more activities are missing required fields.')
+      const backup = await readGoalJson(file)
       if (!confirm(`Restore ${backup.goals.length} goals and ${backup.activities.length} activity entries? This will replace your current dashboard.`)) return
       setImportError('')
-      onImport({ goals: backup.goals, activities: backup.activities })
+      onImport(backup)
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'This file is not a valid Goal Tracker backup.')
     }
@@ -397,7 +462,8 @@ function App() {
     return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
   })
   const [page, setPage] = useState('dashboard')
-  const [setup, setSetup] = useState(data.goals.length === 0)
+  const [setup, setSetup] = useState(false)
+  const [showStart, setShowStart] = useState(data.goals.length === 0)
   const [logging, setLogging] = useState(null)
   const [editing, setEditing] = useState(null)
   const [reaching, setReaching] = useState(null)
@@ -408,7 +474,8 @@ function App() {
     localStorage.setItem('goal-tracker-theme', darkMode ? 'dark' : 'light')
   }, [darkMode])
 
-  const addGoals = (goals) => { setData((d) => ({ ...d, goals: [...d.goals, ...goals] })); setSetup(false); setPage('dashboard') }
+  const addGoals = (goals) => { setData((d) => ({ ...d, goals: [...d.goals, ...goals] })); setSetup(false); setShowStart(false); setPage('dashboard') }
+  const loadTemplate = (backup) => { setData(backup); setShowStart(false); setSetup(false); setPage('dashboard') }
   const saveActivity = (activity) => {
     setData((d) => { const activities = [...d.activities, activity]; return { activities, goals: d.goals.map((g) => {
       if (g.id !== activity.goalId) return g
@@ -462,11 +529,12 @@ function App() {
   }
   const deleteGoal = (id) => { if (confirm('Delete this goal and its activity history?')) setData((d) => ({ goals: d.goals.filter((g) => g.id !== id), activities: d.activities.filter((a) => a.goalId !== id) })) }
   const nav = [['dashboard', LayoutDashboard, 'Dashboard'], ['history', History, 'History'], ['export', Download, 'Export']]
-  if (setup) return <main className="min-h-screen px-4 py-8 sm:py-14"><SetupWizard onFinish={addGoals} allowCancel={data.goals.length > 0} onCancel={() => setSetup(false)} /></main>
+  if (showStart) return <StartScreen onStartNew={() => { setShowStart(false); setSetup(true) }} onLoadTemplate={loadTemplate} />
+  if (setup) return <main className="min-h-screen px-4 py-8 sm:py-14"><SetupWizard onFinish={addGoals} allowCancel={data.goals.length > 0} onCancel={() => { setSetup(false); setShowStart(data.goals.length === 0) }} /></main>
   return <div className="min-h-screen">
     <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6"><button className="flex items-center gap-2.5" onClick={() => setPage('dashboard')}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white"><Target size={19} /></span><span className="font-bold tracking-tight">Goal Tracker</span></button><nav className="hidden items-center gap-1 md:flex">{nav.map(([id, Icon, label]) => <button data-testid={`nav-${id}`} key={id} onClick={() => setPage(id)} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${page === id ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900'}`}><Icon size={16}/>{label}</button>)}<button aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'} className="ml-2 rounded-xl p-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900" onClick={() => setDarkMode((value) => !value)}>{darkMode ? <Sun size={18}/> : <Moon size={18}/>}</button><button data-testid="new-goal-button" className="btn-primary ml-1" onClick={() => setSetup(true)}><Plus size={16}/>New goal</button></nav><div className="flex items-center gap-1 md:hidden"><button aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} className="rounded-xl p-2 text-slate-500" onClick={() => setDarkMode((value) => !value)}>{darkMode ? <Sun size={20}/> : <Moon size={20}/>}</button><button className="rounded-xl p-2" onClick={() => setMobileNav(!mobileNav)}>{mobileNav ? <X size={21}/> : <Menu size={21}/>}</button></div></div>
     {mobileNav && <div className="border-t bg-white p-3 md:hidden">{nav.map(([id, Icon, label]) => <button key={id} onClick={() => { setPage(id); setMobileNav(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-600"><Icon size={17}/>{label}</button>)}<button className="btn-primary mt-2 w-full" onClick={() => { setSetup(true); setMobileNav(false) }}><Plus size={16}/>New goal</button></div>}</header>
-    <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-10">{page === 'dashboard' && <Dashboard goals={data.goals} activities={data.activities} onLog={setLogging} onEdit={setEditing} onStartWeek={startNewWeek} onStartAllWeeks={startAllWeeks} onDelete={deleteGoal} onReach={setReaching} />}{page === 'history' && <HistoryPage goals={data.goals} activities={data.activities} />}{page === 'export' && <ExportPage goals={data.goals} activities={data.activities} onImport={(backup) => { setData(normalizeData(backup)); setPage('dashboard') }} />}</main>
+    <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-10">{page === 'dashboard' && <Dashboard goals={data.goals} activities={data.activities} onLog={setLogging} onEdit={setEditing} onStartWeek={startNewWeek} onStartAllWeeks={startAllWeeks} onDelete={deleteGoal} onReach={setReaching} />}{page === 'history' && <HistoryPage goals={data.goals} activities={data.activities} />}{page === 'export' && <ExportPage goals={data.goals} activities={data.activities} onImport={loadTemplate} />}</main>
     {logging && <LogActivity goal={logging} onSave={saveActivity} onClose={() => setLogging(null)} />}
     {editing && <EditGoal goal={editing} onSave={saveGoal} onClose={() => setEditing(null)} />}
     {reaching && <ReachGoal goal={reaching} onSave={saveReachedGoal} onClose={() => setReaching(null)} />}
